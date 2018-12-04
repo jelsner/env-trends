@@ -1,0 +1,524 @@
+---
+title: "Trends in CAPE/Shear/CIN"
+author: "James Elsner"
+date: "12/4/2018"
+output: github_notebook
+editor_options:
+  chunk_output_type: console
+---
+
+## Part 1: Tornado data
+
+Set working directory and load packages.
+```{r}
+library(tidyverse)
+library(lubridate)
+library(sf)
+library(tmap)
+library(USAboundaries)
+library(rgeos)
+```
+
+Download the tornado data from the Storm Prediction Center (SPC) http://www.spc.noaa.gov/gis/svrgis/
+```{r}
+download.file(url = "http://www.spc.noaa.gov/gis/svrgis/zipped/1950-2017-torn-initpoint.zip",
+              destfile = "tornado.zip", mode = "wb")
+unzip("tornado.zip")
+```
+
+Load the shapefile into R.
+```{r}
+Torn.sf <- read_sf(dsn = "1950-2017-torn-initpoint", 
+                   layer = "1950-2017-torn-initpoint", 
+                   stringsAsFactors = FALSE)
+```
+
+Remove tornadoes occurring in Hawaii, Alaska, and Puerto Rico and those occurring before 1994. That year marks the beginning of comprehensive WSR-88D radar coverage. For missing EF ratings use the modification rules (if/else) defined here: https://www.spc.noaa.gov/wcm/OneTor_F-scale-modifications.pdf
+```{r}
+Torn.sf <- Torn.sf %>%
+  filter(yr >= 1994,
+         !st %in% c("AK", "PR", "HI")) %>%
+  mutate(mag = ifelse(mag == -9 & len <= 5, 0, mag),
+         mag = ifelse(mag == -9 & len > 5, 1, mag))
+```
+
+Add a data/time column also add columns for path length, width, and area in metric units. Leave the time zone as native CDT. Create a convective day (6AM to 6AM) column taking hours 00:00:00 -> 05:59:59 and assigning it to the previous date (this associates the previous day's date to tornadoes occurring up to 6 hours after local midnight).
+```{r}
+Torn.sf <- Torn.sf %>%
+  mutate(dy = format(as.Date(date, format="%Y-%m-%d"), "%d"),
+         DateTime = as.POSIXct(paste(yr, mo, dy, time), format = "%Y%m%d%H:%M:%S"),
+         Hour = hour(DateTime),
+         Year = year(DateTime),
+         cDateTime = DateTime - as.difftime(6, unit = "hours"),
+         cDate = as.Date(as_datetime(ifelse(Hour < 6, (DateTime - 86400), cDateTime), tz = Sys.timezone())),
+         Length = len * 1609.34,
+         Length = ifelse(Length == 0, min(Length[Length > 0]), Length), #takes care of zero length
+         Width = wid * .9144,
+         Width = ifelse(Width == 0, min(Width[Width > 0]), Width), #takes care of zero width
+         Width = ifelse(Year >= 1995, Width * pi/4, Width), #takes care of change: avg to max
+         cas = inj + fat,
+         AreaPath = Length * Width,
+         Ma = factor(month.abb[mo], levels = month.abb[1:12])) 
+max(Torn.sf$yr)
+```
+
+The geometry type is a `POINT`. Each tornado is represented as a single start point. 
+
+Add energy dissipation per tornado.
+```{r}
+perc <- c(1, 0, 0, 0, 0, 0, 
+          .772, .228, 0, 0, 0, 0,
+          .616, .268, .115, 0, 0, 0,
+          .529, .271, .133, .067, 0, 0,
+          .543, .238, .131, .056, .032, 0,
+          .538, .223, .119, .07, .033, .017)
+percM <- matrix(perc, ncol = 6, byrow = TRUE)
+threshW <- c(29.06, 38.45, 49.62, 60.8, 74.21, 89.41)
+midptW <- c(diff(threshW)/2 + threshW[-length(threshW)], threshW[length(threshW)] + 7.5)
+ef <- Torn.sf$mag + 1
+EW3 <- numeric()
+for(i in 1:length(ef)) EW3[i] = midptW^3 %*% percM[ef[i], ]
+Torn.sf <- Torn.sf %>%
+  mutate(ED = EW3 * AreaPath)
+```
+
+Determine big days.
+```{r}
+BigDays.sf <- Torn.sf %>%
+  group_by(cDate) %>%
+  summarize(nT = n(),
+            ATE = sum(ED),
+            AvgATE = exp(mean(log(ED)))) %>%
+  filter(nT >= 10)
+dim(BigDays.sf)
+```
+
+Use a projection that matches the projection of the environmental raster data.
+```{r}
+BigDays.sfT <- st_transform(BigDays.sf, 
+                            crs = "+proj=lcc +lat_1=50 +lat_2=50 +lat_0=50 +lon_0=-107 +x_0=0 +y_0=0 +a=6371200 +b=6371200 +units=m +no_defs")
+```
+
+Get state borders and use the `tm_shape()` function.
+```{r}
+sts <- state.name[!state.name %in% c("Alaska", "Hawaii")]
+stateBorders <- us_states(states = sts)
+
+tm_shape(stateBorders) + 
+  tm_borders(col = "grey") +
+  tm_layout(legend.outside = TRUE) +
+tm_shape(BigDays.sfT) +
+  tm_dots() 
+```
+
+Pecentage of all tornadoes occurring on the big days.
+```{r}
+sum(BigDays.sfT$nT)/dim(Torn.sf)[1] * 100
+```
+
+Obtain the big day hulls and centroids.
+```{r}
+BigDayHulls.sfT <- st_convex_hull(BigDays.sfT)
+BigDayCentroids.sfT <- st_centroid(BigDays.sfT)
+Area <- st_area(BigDayHulls.sfT)
+BigDayHulls.sfT$Area <- Area
+BigDayCentroids.sfT$Area <- Area
+```
+
+Check on a map.
+```{r}
+tm_shape(BigDayHulls.sfT) +
+  tm_polygons(alpha = .1) + 
+tm_shape(stateBorders, projection = "laea_NA", is.master = TRUE) + 
+  tm_borders()
+```
+
+Arrange by accumulated tornado energy (ATE).
+```{r}
+BigDays.sfT %>%
+  top_n(ATE, n = 20) %>%
+  arrange(desc(ATE))
+```
+
+Density plot of ATE.
+```{r}
+labels <- c("10", "100", "1000","10000", "100000")
+
+ggplot(BigDays.sfT, aes(log10(ATE))) +
+  geom_histogram(binwidth = .5, color = "white") +
+  scale_x_continuous(breaks = 10:14, labels= labels) +
+  xlab("Accumulated Tornado Energy [GW]") +
+  ylab("Frequency") +
+  theme_minimal()
+```
+
+## Part 2: Environmental data on big days
+
+Get environmental data at 18Z (2p local) on the convective day. Set up a vector of URLs as character strings. Data are not available after September 30, 2014.
+```{r}
+library(lubridate)
+df <- BigDayHulls.sfdfT %>%
+  filter(cDate <= as.Date("2014-09-30")) %>%
+  mutate(Yr = year(cDate),
+         Mo = month(cDate),
+         Month = format(cDate, "%m"), # this is needed to preserve the leading zeros
+         Day = format(cDate, "%d"), 
+         YrMo = paste0(Yr, Month),
+         YrMoDa = paste0(YrMo, Day),
+         slug2 = paste0(YrMo, "/", YrMoDa, "/", "narr-a_221_", YrMoDa, "_1800_000.grb"),
+         slug = paste0("https://nomads.ncdc.noaa.gov/data/narr/", slug2)) 
+slug <- df$slug
+```
+
+Download the grib files. ~ 2 hours to download 300 grb file.
+```{r, eval=FALSE}
+for(i in 1:length(slug)){
+    download.file(slug[i], paste0("Archive/NARRdata", i, ".grb"), mode = "wb")
+    }
+```
+
+Read the grib files as raster bricks and assign the CAPE and helicity variables to separate raster layers. Extract the average (and extreme) environmental values within each of the big days in large groups hulls. https://nomads.ncdc.noaa.gov/data/narr/201104/20110427/narr-a_221_20110427_0000_000.inv
+
+323:HLCY:3000-0 m above gnd:kpds=190,106,7680:anl:winds are N/S:"Storm relative helicity [m^2/s^2] [J/kg]
+324:USTM:6000-0 m above gnd:kpds=196,106,15360:anl:winds are N/S:"u-component of storm motion [m/s]
+325:VSTM:6000-0 m above gnd:kpds=197,106,15360:anl:winds are N/S:"v-component of storm motion [m/s]
+
+```{r}
+library(raster)
+aCAPE <- numeric()
+aHLCY <- numeric()
+aCIN <- numeric()
+aUSTM <- numeric()
+aVSTM <- numeric()
+aBS <- numeric()
+mCAPE <- numeric()
+mHLCY <- numeric()
+mCIN <- numeric()
+mUSTM <- numeric()
+mVSTM <- numeric()
+mBS <- numeric()
+
+for(i in 1:length(slug)){
+  print(i)
+  rb <- brick(paste0("Archive/NARRdata", i, ".grb"))
+  CAPE.rl <- raster(rb, layer = 375)
+  HLCY.rl <- raster(rb, layer = 323)
+  CIN.rl <- raster(rb, layer = 376)
+  USTM.rl <- raster(rb, layer = 324)
+  VSTM.rl <- raster(rb, layer = 325)
+  BS.rl <- sqrt(USTM.rl^2 + VSTM.rl^2)
+  aCAPE <- c(aCAPE, as.numeric(extract(CAPE.rl, df[i, ], fun = mean)))
+  aHLCY <- c(aHLCY, as.numeric(extract(HLCY.rl, df[i, ], fun = mean)))
+  aCIN <- c(aCIN, as.numeric(extract(CIN.rl, df[i, ], fun = mean)))
+  aUSTM <- c(aUSTM, as.numeric(extract(USTM.rl, df[i, ], fun = mean)))
+  aVSTM <- c(aVSTM, as.numeric(extract(VSTM.rl, df[i, ], fun = mean)))
+  aBS <- c(aBS, as.numeric(extract(BS.rl, df[i, ], fun = mean)))
+  mCAPE <- c(mCAPE, as.numeric(extract(CAPE.rl, df[i, ], fun = max)))
+  mHLCY <- c(mHLCY, as.numeric(extract(HLCY.rl, df[i, ], fun = max)))
+  mCIN <- c(mCIN, as.numeric(extract(CIN.rl, df[i, ], fun = min)))
+  mUSTM <- c(mUSTM, as.numeric(extract(USTM.rl, df[i, ], fun = max)))
+  mVSTM <- c(mVSTM, as.numeric(extract(VSTM.rl, df[i, ], fun = max)))
+  mBS <- c(mBS, as.numeric(extract(BS.rl, df[i, ], fun = max)))
+}
+```
+
+Add environmental data values to the group day means data frame.
+```{r}
+df$aCAPE <- aCAPE
+df$aHLCY <- aHLCY
+df$aCIN <- aCIN
+df$aUSTM <- aUSTM
+df$aVSTM <- aVSTM
+df$aBS <- aBS
+df$mCAPE <- mCAPE
+df$mHLCY <- mHLCY
+df$mCIN <- mCIN
+df$mUSTM <- mUSTM
+df$mVSTM <- mVSTM
+df$mBS <- mBS
+```
+
+Save the `df` so we can work on the models without running all the code above.
+```{r}
+save(df, file = "df.RData")
+#load("df.RData")
+```
+
+Trends. Leave off 2014 because there is no environmental data after September 2014.
+```{r}
+p1 <- df %>%
+  filter(cDate <= as.Date("2014-09-30")) %>%
+  group_by(Yr) %>%
+  summarize(AnnualAvg = mean(aHLCY, na.rm = TRUE)) %>%
+ggplot(., aes(x = Yr, y = AnnualAvg)) +
+  geom_point() + geom_smooth(method = lm, color = "black", size = .35) +
+  scale_y_continuous(limits = c(0, NA)) +
+  scale_x_continuous(breaks = seq(1994, 2013, 4)) +
+  ylab("Storm Relative Helicity\n [J/kg]") + xlab("Year") +
+  theme_minimal() +
+  ggtitle("B")
+
+p2 <- df %>%
+  filter(cDate <= as.Date("2014-09-30")) %>%
+  group_by(Yr) %>%
+  summarize(AnnualAvg = mean(aCIN, na.rm = TRUE)) %>%
+ggplot(., aes(x = Yr, y = -AnnualAvg)) +
+  geom_point()  + geom_smooth(method = lm, color = "black", size = .35) +
+  scale_y_continuous(limits = c(0, NA)) +
+  scale_x_continuous(breaks = seq(1994, 2013, 4)) +
+  ylab("Convective Inhibition\n [J/kg]") + xlab("Year") +
+  theme_minimal() +
+  ggtitle("C")
+```
+
+Increasing CIN helps explain the increasing percentage of all tornadoes occurring on days with many tornadoes (Elsner et al. 2014). Increasing SRH is consistent with increasing shear
+
+Random effects.
+```{r}
+df %>%
+  group_by(Month) %>%
+  summarize(mED = mean(aVSTM),
+            nT = sum(nT))
+```
+
+Models for ATE. Remove row 332 since HLCY is missing for that outbreak.
+```{r}
+summary(lmer(log(AvgATE/Area) ~ scale(X) + nT + I(Yr >= 2007) + I(Yr - 2004) + (1|Month), 
+             weights = nT, 
+             data = df[-332,]))
+
+#Trend .0552
+
+summary(lmer(log(AvgATE/Area) ~ scale(X) + nT + I(Yr >= 2007) + I(Yr - 2004) + (1|Month) + 
+               I(aCAPE/1000),
+             weights = nT, 
+             data = df[-332,]))
+#Trend .0417
+(.0552 - .0417)/.0552
+
+modelX <- lmer(log(AvgATE/Area) ~ scale(X) + nT + I(Yr >= 2007) + (1 + I(Yr - 2004)|Month) + 
+                 I(aCAPE/1000) * I(aHLCY/10) + I(aCIN/10),
+             weights = nT, 
+             data = df[-332,])
+```
+
+Plot the interaction term.
+```{r}
+library(interplot)
+
+df$aCAPE2 <- df$aCAPE/1000
+df$aHLCY2 <- df$aHLCY/10
+df$aCIN2 <- df$aCIN/10
+model <- lmer(log(AvgATE/Area) ~ scale(X) + nT + I(Yr >= 2007) + I(Yr - 2004) + (1|Month) + 
+                aCAPE2 * aHLCY2 + aCIN,
+             weights = nT, 
+             data = df[-332,])
+
+labs <- c(0, 25, 50, 100)
+y <- exp(labs/100) - 1
+p3 <- interplot(m = model, var1 = "aCAPE2", var2 = "aHLCY2", hist = TRUE, ci = .95) +
+    scale_x_continuous(limits = c(0, 35), breaks = seq(0, 35, 5), labels = seq(0, 350, 50)) +
+    scale_y_continuous(breaks = y, 
+                       labels = paste0(labs, "%"),
+                       limits = c(-.5, 2)) +
+    xlab(expression(paste("Storm Relative Helicity [J/kg]"))) +
+    ylab("CAPE's Effect on Tornado Power\n [% Increase/1000 J/kg]") +
+  geom_hline(yintercept = 0, color = "gray") +
+    theme_minimal() +
+  ggtitle("A")
+p3$labels$caption = ""
+
+library(patchwork)
+p3 + (p1/p2)
+```
+
+## Part 3: Environmental data on randomly chosen days with fewer than 10 tornadoes
+
+Choose random days not in the list of big days. Start with a sequence of all days in the interval. Remove big days from the sequence. Then use the frequency of big day months as the weights.
+```{r}
+AllDates <- seq(ymd('1994-01-01'),
+               ymd('2014-09-30'),
+               by = '1 day')
+Months <- month(BigDays.sfdfT$cDate)
+Weights <- as.numeric(table(Months))/length(Months)
+```
+
+Randomly choose months with a frequency that matches the frequency of big days. Randomly choose years and days then combine to make a date object and remove big day dates.
+```{r}
+rMo <- sample.int(n = 12, 
+                  size = 1000, 
+                  replace = TRUE, 
+                  prob = Weights)
+rYr <- sample(x = seq(1994, 2013), 
+              size = 1000, 
+              replace = TRUE)
+rDa <- sample.int(n = 28,
+                  size = 1000,
+                  replace = TRUE)
+rDates <- as.Date(paste0(rYr, "-", rMo, "-", rDa))
+rDates <- rDates[!rDates %in% BigDays.sfdfT$cDate]
+```
+
+Get the url slugs for these non big days.
+```{r}
+Yr <- year(rDates)
+Month <- format(rDates, "%m")
+Day <- format(rDates, "%d")
+YrMo <- paste0(Yr, Month)
+YrMoDa <- paste0(YrMo, Day)
+slug2 <- paste0(YrMo, "/", YrMoDa, "/", "narr-a_221_", YrMoDa, "_1800_000.grb")
+slug <- paste0("https://nomads.ncdc.noaa.gov/data/narr/", slug2)
+```
+
+Get usa boundary as a simple feature.
+```{r}
+usBoundary <- us_states(resolution = "low") %>%
+  filter(!stusps %in% c("AK", "HI", "PR", "DC")) %>%
+  st_union() %>%
+  st_transform(crs = "+proj=lcc +lat_1=50 +lat_2=50 +lat_0=50 +lon_0=-107 +x_0=0 +y_0=0 +a=6371200 +b=6371200 +units=m +no_defs")
+usB <- as(usBoundary, "Spatial")
+```
+
+Get tornado alley as a simple feature. Nebraska, Kansas, Oklahoma, Texas, Arkansas, Missouri, Illinois, Indiana, Ohio, Kentucky, Tennessee, Louisiana, Mississippi, Alabama, Georgia.
+```{r}
+usTA <- us_states(resolution = "low") %>%
+  filter(stusps %in% c("NE", "KS", "OK", "TX", "AR", "MO", "IL", "IA",
+                       "IN", "OH", "KY", "TN", "LA", "MS", "AL", "GA" )) %>%
+  st_union() %>%
+  st_transform(crs = "+proj=lcc +lat_1=50 +lat_2=50 +lat_0=50 +lon_0=-107 +x_0=0 +y_0=0 +a=6371200 +b=6371200 +units=m +no_defs")
+usB <- as(usBoundary, "Spatial")
+```
+
+Download the 18Z convective variables from NARR.
+```{r}
+for(i in 1:length(slug)){
+    download.file(slug[i], paste0("Archive2/NARRdata", i, ".grb"), mode = "wb")
+    }
+```
+
+Import grids and extract environmental variables over the US.
+```{r}
+library(raster)
+aCAPE <- numeric()
+aHLCY <- numeric()
+aCIN <- numeric()
+aUSTM <- numeric()
+aVSTM <- numeric()
+aBS <- numeric()
+mCAPE <- numeric()
+mHLCY <- numeric()
+mCIN <- numeric()
+mUSTM <- numeric()
+mVSTM <- numeric()
+mBS <- numeric()
+
+for(i in 1:length(slug)){
+  print(i)
+  rb <- brick(paste0("Archive2/NARRdata", i, ".grb"))
+  CAPE.rl <- raster(rb, layer = 375)
+  CIN.rl <- raster(rb, layer = 376)
+  HLCY.rl <- raster(rb, layer = 323)
+  USTM.rl <- raster(rb, layer = 324)
+  VSTM.rl <- raster(rb, layer = 325)
+  BS.rl <- sqrt(USTM.rl^2 + VSTM.rl^2)
+  aCAPE <- c(aCAPE, as.numeric(extract(CAPE.rl, usB, fun = mean)))
+  aHLCY <- c(aHLCY, as.numeric(extract(HLCY.rl, usB, fun = mean)))
+  aCIN <- c(aCIN, as.numeric(extract(CIN.rl, usB, fun = mean)))
+  aUSTM <- c(aUSTM, as.numeric(extract(USTM.rl, usB, fun = mean)))
+  aVSTM <- c(aVSTM, as.numeric(extract(VSTM.rl, usB, fun = mean)))
+  aBS <- c(aBS, as.numeric(extract(BS.rl, usB, fun = mean)))
+  mCAPE <- c(mCAPE, as.numeric(extract(CAPE.rl, usB, fun = max)))
+  mHLCY <- c(mHLCY, as.numeric(extract(HLCY.rl, usB, fun = max)))
+  mCIN <- c(mCIN, as.numeric(extract(CIN.rl, usB, fun = min)))
+  mUSTM <- c(mUSTM, as.numeric(extract(USTM.rl, usB, fun = max)))
+  mVSTM <- c(mVSTM, as.numeric(extract(VSTM.rl, usB, fun = max)))
+  mBS <- c(mBS, as.numeric(extract(BS.rl, usB, fun = max)))
+}
+```
+
+```{r}
+dfTA <- data.frame(Yr, rDates, aCAPE, aCIN = -aCIN, aHLCY, aUSTM, aVSTM, aBS,
+                              mCAPE, mCIN = -mCIN, mHLCY, mUSTM, mVSTM, mBS)
+```
+
+Annual trends.
+```{r}
+p1 <- dfTA %>%
+  group_by(Yr) %>%
+  summarize(AnnualAvg = mean(mCAPE)) %>%
+ggplot(., aes(x = Yr, y = AnnualAvg)) +
+  geom_point() + geom_smooth(method = lm, color = "black", size = .35) +
+  scale_y_continuous(limits = c(0, NA)) +
+  scale_x_continuous(breaks = seq(1994, 2013, 4)) +
+  ylab("CAPE\n [J/kg]") + xlab("Year") +
+  theme_minimal() +
+  ggtitle("A")
+
+p2 <- dfTA%>%
+  group_by(Yr) %>%
+  summarize(AnnualAvg = mean(mCIN)) %>%
+ggplot(., aes(x = Yr, y = AnnualAvg)) +
+  geom_point() + geom_smooth(method = lm, color = "black", size = .35) +
+  scale_y_continuous(limits = c(0, NA)) +
+  scale_x_continuous(breaks = seq(1994, 2013, 4)) +
+  ylab("CIN\n [J/kg]") + xlab("Year") +
+  theme_minimal() +
+  ggtitle("B")
+
+p3 <- dfTA %>%
+  group_by(Yr) %>%
+  summarize(AnnualAvg = mean(mBS)) %>%
+ggplot(., aes(x = Yr, y = AnnualAvg)) +
+  geom_point() + geom_smooth(method = lm, color = "black", size = .35) +
+  scale_y_continuous(limits = c(0, NA)) +
+  scale_x_continuous(breaks = seq(1994, 2013, 4)) +
+  ylab("Bulk Shear\n [m/s]") + xlab("Year") +
+  theme_minimal() +
+  ggtitle("C")
+
+p4 <- dfTA %>%
+  group_by(Yr) %>%
+  summarize(AnnualAvg = mean(mUSTM)) %>%
+ggplot(., aes(x = Yr, y = AnnualAvg)) +
+  geom_point() + geom_smooth(method = lm, color = "black", size = .35) +
+  scale_y_continuous(limits = c(0, NA)) +
+  scale_x_continuous(breaks = seq(1994, 2013, 4)) +
+  ylab("U Shear\n [m/s]") + xlab("Year") +
+  theme_minimal() +
+  ggtitle("D")
+
+p5 <- dfTA %>%
+  group_by(Yr) %>%
+  summarize(AnnualAvg = mean(mVSTM)) %>%
+ggplot(., aes(x = Yr, y = AnnualAvg)) +
+  geom_point() + geom_smooth(method = lm, color = "black", size = .35) +
+  scale_y_continuous(limits = c(0, NA)) +
+  scale_x_continuous(breaks = seq(1994, 2013, 4)) +
+  ylab("V Shear\n [m/s]") + xlab("Year") +
+  theme_minimal() +
+  ggtitle("E")
+
+p6 <- dfTA %>%
+  group_by(Yr) %>%
+  summarize(AnnualAvg = mean(mHLCY)) %>%
+ggplot(., aes(x = Yr, y = AnnualAvg)) +
+  geom_point() + geom_smooth(method = lm, color = "black", size = .35) +
+  scale_y_continuous(limits = c(0, NA)) +
+  scale_x_continuous(breaks = seq(1994, 2013, 4)) +
+  ylab("Helicity\n [J/kg]") + xlab("Year") +
+  theme_minimal() +
+  ggtitle("F")
+
+p1 + p2 + p3 + p4 + p5 + p6 + plot_layout(ncol = 2)
+```
+
+The surface temperature response to greenhouse gas forcing displays a pattern of polar-amplified warming (1,2,3) particularly in the Northern Hemisphere. 
+
+1. Manabe, S. & Wetherald, R. The effects of doubling the CO2 concentrations on the climate of a general circulation model. J. Atmos. Sci. 32, 3–15 (1975).
+2. Holland, M. M. & Bitz, C. M. Polar amplification of climate change in coupled models. Clim. Dynam. 21, 221–232 (2003).
+3. Bintanja, R., Graversen, R. G. & Hazeleger, W. Arctic winter warming amplified by the thermal inversion and consequent low infrared cooling to space. Nat. Geosci. 4, 758–761 (2011).
+
+We see an increase in CAPE due to increased warming and moistening of the atmosphere and a decrease in shear throughout the midlatitudes from polar amplification of the warming.
+
+This is the changing background state. On big tornado days, shear is increasing and so is CIN.
+
