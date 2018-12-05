@@ -421,35 +421,38 @@ for(i in 1:length(slug)){
 ```{r}
 dfTA <- data.frame(Yr, rDates, aCAPE, aCIN = -aCIN, aHLCY, aUSTM, aVSTM, aBS,
                                mCAPE, mCIN = -mCIN, mHLCY, mUSTM, mVSTM, mBS)
+
+save(dfTA, file = "df.RData")
+#load("df.RData")
 ```
 
 Annual trends.
 ```{r}
 p5 <- dfTA %>%
   group_by(Yr) %>%
-  summarize(AnnualAvg = mean(aHLCY)) %>%
+  summarize(AnnualAvg = mean(mHLCY)) %>%
 ggplot(., aes(x = Yr, y = AnnualAvg)) +
   geom_point() + geom_smooth(method = lm, color = "black", size = .35) +
   scale_y_continuous(limits = c(0, NA)) +
   scale_x_continuous(breaks = seq(1994, 2013, 4)) +
-  ylab("CAPE\n [J/kg]") + xlab("Year") +
+  ylab("Storm Relative Helicity\n [J/kg]") + xlab("Year") +
   theme_minimal() +
   ggtitle("A")
 
 p6 <- dfTA%>%
   group_by(Yr) %>%
-  summarize(AnnualAvg = mean(aCIN)) %>%
+  summarize(AnnualAvg = mean(mCIN)) %>%
 ggplot(., aes(x = Yr, y = AnnualAvg)) +
   geom_point() + geom_smooth(method = lm, color = "black", size = .35) +
   scale_y_continuous(limits = c(0, NA)) +
   scale_x_continuous(breaks = seq(1994, 2013, 4)) +
-  ylab("CIN\n [J/kg]") + xlab("Year") +
+  ylab("Convective Inhibition\n [J/kg]") + xlab("Year") +
   theme_minimal() +
   ggtitle("B")
 
 p7 <- dfTA %>%
   group_by(Yr) %>%
-  summarize(AnnualAvg = mean(aBS)) %>%
+  summarize(AnnualAvg = mean(mBS)) %>%
 ggplot(., aes(x = Yr, y = AnnualAvg)) +
   geom_point() + geom_smooth(method = lm, color = "black", size = .35) +
   scale_y_continuous(limits = c(0, NA)) +
@@ -460,12 +463,12 @@ ggplot(., aes(x = Yr, y = AnnualAvg)) +
 
 p8 <- dfTA %>%
   group_by(Yr) %>%
-  summarize(AnnualAvg = mean(aCAPE)) %>%
+  summarize(AnnualAvg = mean(mCAPE)) %>%
 ggplot(., aes(x = Yr, y = AnnualAvg)) +
   geom_point() + geom_smooth(method = lm, color = "black", size = .35) +
   scale_y_continuous(limits = c(0, NA)) +
   scale_x_continuous(breaks = seq(1994, 2013, 4)) +
-  ylab("U Shear\n [m/s]") + xlab("Year") +
+  ylab("CAPE\n [J/kg]") + xlab("Year") +
   theme_minimal() +
   ggtitle("D")
 
