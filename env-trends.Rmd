@@ -7,6 +7,8 @@ editor_options:
   chunk_output_type: console
 ---
 
+Compare CAPE, CIN, Shear using two different samples. Sample one are all days with at least 30 tornadoes. Sample two are a random sample of days with fewer than 10 tornadoes.
+
 ## Part 1: Tornado data
 
 Set working directory and load packages.
@@ -89,8 +91,16 @@ BigDays.sf <- Torn.sf %>%
   summarize(nT = n(),
             ATE = sum(ED),
             AvgATE = exp(mean(log(ED)))) %>%
-  filter(nT >= 10)
+  filter(nT >= 30)
 dim(BigDays.sf)
+```
+
+Determine medium (and big) days.
+```{r}
+MedDays.sf <- Torn.sf %>%
+  group_by(cDate) %>%
+  summarize(nT = n()) %>%
+  filter(nT >= 10) 
 ```
 
 Use a projection that matches the projection of the environmental raster data.
@@ -171,7 +181,7 @@ slug <- df$slug
 ```
 
 Download the grib files. ~ 2 hours to download 300 grb file.
-```{r, eval=FALSE}
+```{r}
 for(i in 1:length(slug)){
     download.file(slug[i], paste0("Archive/NARRdata", i, ".grb"), mode = "wb")
     }
@@ -311,23 +321,24 @@ AllDates <- seq(ymd('1994-01-01'),
                 by = '1 day')
 Months <- month(BigDays.sfT$cDate)
 Weights <- as.numeric(table(Months))/length(Months)
+Weights <- c(Weights[1:6], 0, Weights[7:11])
 ```
 
-Randomly choose months with a frequency that matches the frequency of big days. Randomly choose years and days then combine to make a date object. Remove big day dates.
+Randomly choose months with a frequency that matches the frequency of big days. Randomly choose years and days then combine to make a date object. Remove any dates that are have ten or more tornadoes (`MedDays.sf`).
 ```{r}
-set.seed(3042)
+set.seed(0112)
 rMo <- sample.int(n = 12, 
-                  size = 1000, 
+                  size = 200, 
                   replace = TRUE, 
                   prob = Weights)
 rYr <- sample(x = seq(1994, 2013), 
-              size = 1000, 
+              size = 200, 
               replace = TRUE)
 rDa <- sample.int(n = 28,
-                  size = 1000,
+                  size = 200,
                   replace = TRUE)
 rDates <- as.Date(paste0(rYr, "-", rMo, "-", rDa))
-rDates <- rDates[!rDates %in% BigDays.sfT$cDate]
+rDates <- rDates[!rDates %in% MedDays.sf$cDate]
 ```
 
 Get the url slugs for these non big days.
@@ -408,15 +419,15 @@ for(i in 1:length(slug)){
 ```
 
 ```{r}
-dfTA <- data.frame(Yr, rDates, aCAPE = aCAPE[1:820], aCIN = -aCIN[1:820], aHLCY = aHLCY[1:820], aUSTM = aUSTM[1:820], aVSTM = aVSTM[1:820], aBS = aBS[1:820],
-                               mCAPE = mCAPE[1:820], mCIN = -mCIN[1:820], mHLCY = mHLCY[1:820], mUSTM = mUSTM[1:820], mVSTM = mVSTM[1:820], mBS = mBS[1:820])
+dfTA <- data.frame(Yr, rDates, aCAPE, aCIN = -aCIN, aHLCY, aUSTM, aVSTM, aBS,
+                               mCAPE, mCIN = -mCIN, mHLCY, mUSTM, mVSTM, mBS)
 ```
 
 Annual trends.
 ```{r}
-p1 <- dfTA %>%
+p5 <- dfTA %>%
   group_by(Yr) %>%
-  summarize(AnnualAvg = mean(aCAPE)) %>%
+  summarize(AnnualAvg = mean(aHLCY)) %>%
 ggplot(., aes(x = Yr, y = AnnualAvg)) +
   geom_point() + geom_smooth(method = lm, color = "black", size = .35) +
   scale_y_continuous(limits = c(0, NA)) +
@@ -425,7 +436,7 @@ ggplot(., aes(x = Yr, y = AnnualAvg)) +
   theme_minimal() +
   ggtitle("A")
 
-p2 <- dfTA%>%
+p6 <- dfTA%>%
   group_by(Yr) %>%
   summarize(AnnualAvg = mean(aCIN)) %>%
 ggplot(., aes(x = Yr, y = AnnualAvg)) +
@@ -436,7 +447,7 @@ ggplot(., aes(x = Yr, y = AnnualAvg)) +
   theme_minimal() +
   ggtitle("B")
 
-p3 <- dfTA %>%
+p7 <- dfTA %>%
   group_by(Yr) %>%
   summarize(AnnualAvg = mean(aBS)) %>%
 ggplot(., aes(x = Yr, y = AnnualAvg)) +
@@ -447,9 +458,9 @@ ggplot(., aes(x = Yr, y = AnnualAvg)) +
   theme_minimal() +
   ggtitle("C")
 
-p4 <- dfTA %>%
+p8 <- dfTA %>%
   group_by(Yr) %>%
-  summarize(AnnualAvg = mean(aUSTM)) %>%
+  summarize(AnnualAvg = mean(aCAPE)) %>%
 ggplot(., aes(x = Yr, y = AnnualAvg)) +
   geom_point() + geom_smooth(method = lm, color = "black", size = .35) +
   scale_y_continuous(limits = c(0, NA)) +
@@ -458,29 +469,8 @@ ggplot(., aes(x = Yr, y = AnnualAvg)) +
   theme_minimal() +
   ggtitle("D")
 
-p5 <- dfTA %>%
-  group_by(Yr) %>%
-  summarize(AnnualAvg = mean(aVSTM)) %>%
-ggplot(., aes(x = Yr, y = AnnualAvg)) +
-  geom_point() + geom_smooth(method = lm, color = "black", size = .35) +
-  scale_y_continuous(limits = c(0, NA)) +
-  scale_x_continuous(breaks = seq(1994, 2013, 4)) +
-  ylab("V Shear\n [m/s]") + xlab("Year") +
-  theme_minimal() +
-  ggtitle("E")
 
-p6 <- dfTA %>%
-  group_by(Yr) %>%
-  summarize(AnnualAvg = mean(aHLCY)) %>%
-ggplot(., aes(x = Yr, y = AnnualAvg)) +
-  geom_point() + geom_smooth(method = lm, color = "black", size = .35) +
-  scale_y_continuous(limits = c(0, NA)) +
-  scale_x_continuous(breaks = seq(1994, 2013, 4)) +
-  ylab("Helicity\n [J/kg]") + xlab("Year") +
-  theme_minimal() +
-  ggtitle("F")
-
-p1 + p2 + p3 + p4 + p5 + p6 + plot_layout(ncol = 2)
+p5 + p6 + p7 + p8 
 ```
 
 The surface temperature response to greenhouse gas forcing displays a pattern of polar-amplified warming (1,2,3) particularly in the Northern Hemisphere. 
