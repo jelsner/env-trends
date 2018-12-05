@@ -247,7 +247,7 @@ save(df, file = "df.RData")
 Trends. Leave off 2014 because there is no environmental data after September 2014.
 ```{r}
 p1 <- df %>%
-  filter(cDate <= as.Date("2014-09-30")) %>%
+  filter(Yr < 2014) %>%
   group_by(Yr) %>%
   summarize(AnnualAvg = mean(aHLCY, na.rm = TRUE)) %>%
 ggplot(., aes(x = Yr, y = AnnualAvg)) +
@@ -256,10 +256,10 @@ ggplot(., aes(x = Yr, y = AnnualAvg)) +
   scale_x_continuous(breaks = seq(1994, 2013, 4)) +
   ylab("Storm Relative Helicity\n [J/kg]") + xlab("Year") +
   theme_minimal() +
-  ggtitle("B")
+  ggtitle("A")
 
 p2 <- df %>%
-  filter(cDate <= as.Date("2014-09-30")) %>%
+  filter(Yr < 2014) %>%
   group_by(Yr) %>%
   summarize(AnnualAvg = mean(aCIN, na.rm = TRUE)) %>%
 ggplot(., aes(x = Yr, y = -AnnualAvg)) +
@@ -268,68 +268,38 @@ ggplot(., aes(x = Yr, y = -AnnualAvg)) +
   scale_x_continuous(breaks = seq(1994, 2013, 4)) +
   ylab("Convective Inhibition\n [J/kg]") + xlab("Year") +
   theme_minimal() +
+  ggtitle("B")
+
+p3 <- df %>%
+  filter(Yr < 2014) %>%
+  group_by(Yr) %>%
+  summarize(AnnualAvg = mean(aBS, na.rm = TRUE)) %>%
+ggplot(., aes(x = Yr, y = AnnualAvg)) +
+  geom_point() + geom_smooth(method = lm, color = "black", size = .35) +
+  scale_y_continuous(limits = c(0, NA)) +
+  scale_x_continuous(breaks = seq(1994, 2013, 4)) +
+  ylab("Bulk Shear\n [m/s]") + xlab("Year") +
+  theme_minimal() +
   ggtitle("C")
+
+p4 <- df %>%
+  filter(Yr < 2014) %>%
+  group_by(Yr) %>%
+  summarize(AnnualAvg = mean(aCAPE, na.rm = TRUE)) %>%
+ggplot(., aes(x = Yr, y = AnnualAvg)) +
+  geom_point() + geom_smooth(method = lm, color = "black", size = .35) +
+  scale_y_continuous(limits = c(0, NA)) +
+  scale_x_continuous(breaks = seq(1994, 2013, 4)) +
+  ylab("CAPE\n [J/kg]") + xlab("Year") +
+  theme_minimal() +
+  ggtitle("D")
 ```
 
 Increasing CIN helps explain the increasing percentage of all tornadoes occurring on days with many tornadoes (Elsner et al. 2014). Increasing SRH is consistent with increasing shear
 
-Random effects.
 ```{r}
-df %>%
-  group_by(Month) %>%
-  summarize(mED = mean(aVSTM),
-            nT = sum(nT))
-```
-
-Models for ATE. Remove row 332 since HLCY is missing for that outbreak.
-```{r}
-summary(lmer(log(AvgATE/Area) ~ scale(X) + nT + I(Yr >= 2007) + I(Yr - 2004) + (1|Month), 
-             weights = nT, 
-             data = df[-332,]))
-
-#Trend .0552
-
-summary(lmer(log(AvgATE/Area) ~ scale(X) + nT + I(Yr >= 2007) + I(Yr - 2004) + (1|Month) + 
-               I(aCAPE/1000),
-             weights = nT, 
-             data = df[-332,]))
-#Trend .0417
-(.0552 - .0417)/.0552
-
-modelX <- lmer(log(AvgATE/Area) ~ scale(X) + nT + I(Yr >= 2007) + (1 + I(Yr - 2004)|Month) + 
-                 I(aCAPE/1000) * I(aHLCY/10) + I(aCIN/10),
-             weights = nT, 
-             data = df[-332,])
-```
-
-Plot the interaction term.
-```{r}
-library(interplot)
-
-df$aCAPE2 <- df$aCAPE/1000
-df$aHLCY2 <- df$aHLCY/10
-df$aCIN2 <- df$aCIN/10
-model <- lmer(log(AvgATE/Area) ~ scale(X) + nT + I(Yr >= 2007) + I(Yr - 2004) + (1|Month) + 
-                aCAPE2 * aHLCY2 + aCIN,
-             weights = nT, 
-             data = df[-332,])
-
-labs <- c(0, 25, 50, 100)
-y <- exp(labs/100) - 1
-p3 <- interplot(m = model, var1 = "aCAPE2", var2 = "aHLCY2", hist = TRUE, ci = .95) +
-    scale_x_continuous(limits = c(0, 35), breaks = seq(0, 35, 5), labels = seq(0, 350, 50)) +
-    scale_y_continuous(breaks = y, 
-                       labels = paste0(labs, "%"),
-                       limits = c(-.5, 2)) +
-    xlab(expression(paste("Storm Relative Helicity [J/kg]"))) +
-    ylab("CAPE's Effect on Tornado Power\n [% Increase/1000 J/kg]") +
-  geom_hline(yintercept = 0, color = "gray") +
-    theme_minimal() +
-  ggtitle("A")
-p3$labels$caption = ""
-
 library(patchwork)
-p3 + (p1/p2)
+p1 + p2 + p3 + p4
 ```
 
 ## Part 3: Environmental data on randomly chosen days with fewer than 10 tornadoes
@@ -337,14 +307,15 @@ p3 + (p1/p2)
 Choose random days not in the list of big days. Start with a sequence of all days in the interval. Remove big days from the sequence. Then use the frequency of big day months as the weights.
 ```{r}
 AllDates <- seq(ymd('1994-01-01'),
-               ymd('2014-09-30'),
-               by = '1 day')
-Months <- month(BigDays.sfdfT$cDate)
+                ymd('2014-09-30'),
+                by = '1 day')
+Months <- month(BigDays.sfT$cDate)
 Weights <- as.numeric(table(Months))/length(Months)
 ```
 
-Randomly choose months with a frequency that matches the frequency of big days. Randomly choose years and days then combine to make a date object and remove big day dates.
+Randomly choose months with a frequency that matches the frequency of big days. Randomly choose years and days then combine to make a date object. Remove big day dates.
 ```{r}
+set.seed(3042)
 rMo <- sample.int(n = 12, 
                   size = 1000, 
                   replace = TRUE, 
@@ -356,7 +327,7 @@ rDa <- sample.int(n = 28,
                   size = 1000,
                   replace = TRUE)
 rDates <- as.Date(paste0(rYr, "-", rMo, "-", rDa))
-rDates <- rDates[!rDates %in% BigDays.sfdfT$cDate]
+rDates <- rDates[!rDates %in% BigDays.sfT$cDate]
 ```
 
 Get the url slugs for these non big days.
@@ -437,15 +408,15 @@ for(i in 1:length(slug)){
 ```
 
 ```{r}
-dfTA <- data.frame(Yr, rDates, aCAPE, aCIN = -aCIN, aHLCY, aUSTM, aVSTM, aBS,
-                              mCAPE, mCIN = -mCIN, mHLCY, mUSTM, mVSTM, mBS)
+dfTA <- data.frame(Yr, rDates, aCAPE = aCAPE[1:820], aCIN = -aCIN[1:820], aHLCY = aHLCY[1:820], aUSTM = aUSTM[1:820], aVSTM = aVSTM[1:820], aBS = aBS[1:820],
+                               mCAPE = mCAPE[1:820], mCIN = -mCIN[1:820], mHLCY = mHLCY[1:820], mUSTM = mUSTM[1:820], mVSTM = mVSTM[1:820], mBS = mBS[1:820])
 ```
 
 Annual trends.
 ```{r}
 p1 <- dfTA %>%
   group_by(Yr) %>%
-  summarize(AnnualAvg = mean(mCAPE)) %>%
+  summarize(AnnualAvg = mean(aCAPE)) %>%
 ggplot(., aes(x = Yr, y = AnnualAvg)) +
   geom_point() + geom_smooth(method = lm, color = "black", size = .35) +
   scale_y_continuous(limits = c(0, NA)) +
@@ -456,7 +427,7 @@ ggplot(., aes(x = Yr, y = AnnualAvg)) +
 
 p2 <- dfTA%>%
   group_by(Yr) %>%
-  summarize(AnnualAvg = mean(mCIN)) %>%
+  summarize(AnnualAvg = mean(aCIN)) %>%
 ggplot(., aes(x = Yr, y = AnnualAvg)) +
   geom_point() + geom_smooth(method = lm, color = "black", size = .35) +
   scale_y_continuous(limits = c(0, NA)) +
@@ -467,7 +438,7 @@ ggplot(., aes(x = Yr, y = AnnualAvg)) +
 
 p3 <- dfTA %>%
   group_by(Yr) %>%
-  summarize(AnnualAvg = mean(mBS)) %>%
+  summarize(AnnualAvg = mean(aBS)) %>%
 ggplot(., aes(x = Yr, y = AnnualAvg)) +
   geom_point() + geom_smooth(method = lm, color = "black", size = .35) +
   scale_y_continuous(limits = c(0, NA)) +
@@ -478,7 +449,7 @@ ggplot(., aes(x = Yr, y = AnnualAvg)) +
 
 p4 <- dfTA %>%
   group_by(Yr) %>%
-  summarize(AnnualAvg = mean(mUSTM)) %>%
+  summarize(AnnualAvg = mean(aUSTM)) %>%
 ggplot(., aes(x = Yr, y = AnnualAvg)) +
   geom_point() + geom_smooth(method = lm, color = "black", size = .35) +
   scale_y_continuous(limits = c(0, NA)) +
@@ -489,7 +460,7 @@ ggplot(., aes(x = Yr, y = AnnualAvg)) +
 
 p5 <- dfTA %>%
   group_by(Yr) %>%
-  summarize(AnnualAvg = mean(mVSTM)) %>%
+  summarize(AnnualAvg = mean(aVSTM)) %>%
 ggplot(., aes(x = Yr, y = AnnualAvg)) +
   geom_point() + geom_smooth(method = lm, color = "black", size = .35) +
   scale_y_continuous(limits = c(0, NA)) +
@@ -500,7 +471,7 @@ ggplot(., aes(x = Yr, y = AnnualAvg)) +
 
 p6 <- dfTA %>%
   group_by(Yr) %>%
-  summarize(AnnualAvg = mean(mHLCY)) %>%
+  summarize(AnnualAvg = mean(aHLCY)) %>%
 ggplot(., aes(x = Yr, y = AnnualAvg)) +
   geom_point() + geom_smooth(method = lm, color = "black", size = .35) +
   scale_y_continuous(limits = c(0, NA)) +
