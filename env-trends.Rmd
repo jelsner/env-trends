@@ -167,7 +167,7 @@ ggplot(BigDays.sfT, aes(log10(ATE))) +
 Get environmental data at 18Z (2p local) on the convective day. Set up a vector of URLs as character strings. Data are not available after September 30, 2014.
 ```{r}
 library(lubridate)
-df <- BigDayHulls.sfdfT %>%
+df <- BigDayHulls.sfT %>%
   filter(cDate <= as.Date("2014-09-30")) %>%
   mutate(Yr = year(cDate),
          Mo = month(cDate),
