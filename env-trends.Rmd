@@ -513,13 +513,13 @@ Days <- as.data.frame(df) %>%
   group_by(Yr) %>%
   summarize(AnnualAvg = mean(aBS),
             nD = n())
-Days$Type <- "30 or more tornadoes"
+Days$Type <- "Big Days"
 
 Days2 <- dfTA %>%
   group_by(Yr) %>%
   summarize(AnnualAvg = mean(aBS),
             nD = n())
-Days2$Type <- "Fewer than 10 tornadoes"
+Days2$Type <- "Other Days"
 
 Days <- rbind(Days, Days2)
 
@@ -529,6 +529,6 @@ ggplot(Days, aes(x = Yr, y = AnnualAvg, weight = nD, col = Type)) +
   scale_y_continuous(limits = c(0, NA)) +
   scale_x_continuous(breaks = seq(1994, 2013, 4)) +
   ylab("Bulk Shear [m/s]") + xlab("Year") +
+  scale_color_discrete(name = "Tornadoes", labels = c("Thirty or more", "Fewer than ten")) +
   theme_minimal()
-
 ```
