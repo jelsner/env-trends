@@ -549,12 +549,21 @@ r <- NULL ; pval <- NULL
 for (k in theta){
   C1 <- cos(k * pi/180)
   C2 <- sin(k * pi/180)
-  Tclim <- C1 * scale(df2$nT) + C2 * scale(df2$AvgATE)
-  ctest = cor.test(Tclim, df2$mCIN)
+  Tclim <- C1 * scale(df$nT) + C2 * scale(df$AvgATE)
+#  Eclim <- C1 * scale(df$mCAPE) + C2 * scale(df$mBS)
+  ctest = cor.test(Tclim, df$mBS)
+#  ctest = cor.test(Eclim, df$AvgATE)
   r <- c(r, as.numeric(ctest$estimate))
   pval <- c(pval, as.numeric(ctest$p.value))
 }
 range(r)
+```
+
+```{r}
+dfPlot <- data.frame(r, pval, theta)
+library(ggplot2)
+ggplot(dfPlot, aes(x = theta, y = r)) + 
+  geom_bar(stat = "identity") + coord_polar()
 ```
 
 Plot
@@ -563,22 +572,22 @@ signif = .05
 plot(-10, -10, xlim=c(-1, 1.3), ylim=c(-1, 1.3), axes=FALSE, xlab='', ylab='', main='')
 
 i = seq(0, 360, .5)
-Outl = cbind(cos(i * pi/180), sin(i * pi/180))
-Innl = cbind(.5 * cos(i * pi/180), .5 * sin(i * pi/180))
+Outl = cbind(.5 * cos(i * pi/180), .5 * sin(i * pi/180))
+Innl = cbind(.25 * cos(i * pi/180), .25 * sin(i * pi/180))
 
 polygon(Outl[, 1], Outl[, 2], border=colors()[229], col='white', lwd=2)
 polygon(Innl[, 1], Innl[, 2], border=colors()[229], col=NULL, lwd=2)
 
-Line.xcord = c(-1, 1, NA, 0, 0, NA, -cos(pi/4), cos(pi/4), NA, -cos(pi/4), cos(pi/4))
-Line.ycord = c(0, 0, NA, -1, 1, NA, sin(pi/4), -sin(pi/4), NA, -sin(pi/4), sin(pi/4))
+Line.xcord = c(-.5, .5, NA, 0, 0, NA, -cos(pi/4), cos(pi/4), NA, -cos(pi/4), cos(pi/4))
+Line.ycord = c(0, 0, NA, -.5, .5, NA, sin(pi/4), -sin(pi/4), NA, -sin(pi/4), sin(pi/4))
 lines(Line.xcord, Line.ycord, col=colors()[229], lwd=1)
 
 text(par('usr')[2] - 0.29, 0.0, srt=0, adj = 0, labels = 'INT', xpd = TRUE, cex=1.3) 
 text(par('usr')[2] - 0.6, 0.81, srt=0, adj = 0, labels = 'ACT', xpd = TRUE, cex=1.3)
 text(par('usr')[2] - 1.52, 1.17, srt=0, adj = 0, labels = 'FRQ', xpd = TRUE, cex=1.3)
 text(par('usr')[2] - 0.6, -0.81, srt=0, adj = 0, labels = 'EINT', xpd = TRUE, cex=1.3)
-text(0,0.55, '0.5', cex=1.4, col=colors()[229])
-text(0,1.05, '1.0', cex=1.4, col=colors()[229])
+text(0,0.55, '0.25', cex=1.4, col=colors()[229])
+text(0,1.05, '0.50', cex=1.4, col=colors()[229])
 
 dg = theta
 polygon(r * cos(dg * pi/180), r * sin(dg * pi/180), border="#ff9900", lwd=7, col=NULL)
