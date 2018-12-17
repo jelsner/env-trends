@@ -551,19 +551,12 @@ for (k in theta){
   C2 <- sin(k * pi/180)
   Tclim <- C1 * scale(df$nT) + C2 * scale(df$AvgATE)
 #  Eclim <- C1 * scale(df$mCAPE) + C2 * scale(df$mBS)
-  ctest = cor.test(Tclim, df$mBS)
+  ctest = cor.test(Tclim, df$mCAPE)
 #  ctest = cor.test(Eclim, df$AvgATE)
   r <- c(r, as.numeric(ctest$estimate))
   pval <- c(pval, as.numeric(ctest$p.value))
 }
 range(r)
-```
-
-```{r}
-dfPlot <- data.frame(r, pval, theta)
-library(ggplot2)
-ggplot(dfPlot, aes(x = theta, y = r)) + 
-  geom_bar(stat = "identity") + coord_polar()
 ```
 
 Plot
