@@ -9,7 +9,7 @@ editor_options:
 
 Compare CAPE, CIN, Shear using two different samples. Sample one are all days with at least 30 tornadoes. Sample two are a random sample of days with fewer than 10 tornadoes.
 
-Correlation screen using FRQ as the number of tornadoes on a big day and INT as the upper quantile of per tornado energy dissipation.
+Correlation screen using FRQ as the number of tornadoes on a big day and INT as the average per tornado energy dissipation on the big day.
 
 ## Part 1: Tornado data
 
@@ -83,6 +83,31 @@ EW3 <- numeric()
 for(i in 1:length(ef)) EW3[i] = midptW^3 %*% percM[ef[i], ]
 Torn.sf <- Torn.sf %>%
   mutate(ED = EW3 * AreaPath)
+```
+
+Maps of tornadoes by month.
+
+```{r}
+sts <- state.name[!state.name %in% c("Alaska", "Hawaii")]
+stateBorders <- us_states(states = sts)
+
+tm_shape(world) +
+  tm_polygons() +
+tm_shape(world[world$name_long == "United States", ]) +
+  tm_polygons(col = "white") +
+tm_shape(Torn.sf) +
+  tm_dots() + 
+  tm_facets(by = "mo", as.layers = TRUE) +
+tm_shape(stateBorders, projection = "laea_NA", is.master = TRUE) + 
+  tm_borders() +
+  tm_compass(type = "arrow", position = c("left", "bottom")) +
+  tm_scale_bar(position = c("left", "bottom"), size = .75) +
+   tm_style("natural") +
+  tm_layout(main.title = "Contiguous U.S. Tornadoes [1994-2017]",
+            main.title.position = "center", main.title.size = .85,
+            panel.labels = month.name) +
+  tm_credits(c(rep("", 11), "Data Source: U.S. SPC"), position = c("right", "bottom"))
+
 ```
 
 Determine big days.
