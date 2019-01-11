@@ -23,17 +23,13 @@ library(USAboundaries)
 library(rgeos)
 ```
 
-Download the tornado data from the Storm Prediction Center (SPC) http://www.spc.noaa.gov/gis/svrgis/
+Download the tornado data from the Storm Prediction Center (SPC) http://www.spc.noaa.gov/gis/svrgis/ and load the shapefile into R.
 ```{r}
 download.file(url = "http://www.spc.noaa.gov/gis/svrgis/zipped/1950-2017-torn-initpoint.zip",
               destfile = "tornado.zip")
 unzip("tornado.zip")
-```
 
-Load the shapefile into R.
-```{r}
-Torn.sf <- read_sf(dsn = "1950-2017-torn-initpoint", 
-                   layer = "1950-2017-torn-initpoint")
+Torn.sf <- read_sf(dsn = "1950-2017-torn-initpoint")
 ```
 
 Remove tornadoes occurring in Hawaii, Alaska, and Puerto Rico and those occurring before 1994. That year marks the beginning of comprehensive WSR-88D radar coverage. For missing EF ratings use the modification rules (if/else) defined here: https://www.spc.noaa.gov/wcm/OneTor_F-scale-modifications.pdf
@@ -90,9 +86,9 @@ Maps of tornadoes by month.
 sts <- state.name[!state.name %in% c("Alaska", "Hawaii")]
 stateBorders <- us_states(states = sts)
 
-tm_shape(world) +
+tm_shape(World) +
   tm_polygons() +
-tm_shape(world[world$name_long == "United States", ]) +
+tm_shape(World[World$name == "United States", ]) +
   tm_polygons(col = "white") +
 tm_shape(Torn.sf) +
   tm_dots() + 
@@ -108,13 +104,14 @@ tm_shape(stateBorders, projection = "laea_NA", is.master = TRUE) +
   tm_credits(c(rep("", 11), "Data Source: U.S. SPC"), position = c("right", "bottom"))
 ```
 
-Determine big days.
+Determine big days. Compute accumulated tornado energy (ATE), average (geometric) energy dissipation, and median energy dissipation.
 ```{r}
 BigDays.sf <- Torn.sf %>%
   group_by(cDate) %>%
   summarize(nT = n(),
             ATE = sum(ED),
-            AvgATE = exp(mean(log(ED)))) %>%
+            AvgED = exp(mean(log(ED))),
+            MedED = median(ED)) %>%
   filter(nT >= 30)
 dim(BigDays.sf)
 ```
@@ -142,7 +139,7 @@ tm_shape(BigDays.sfT) +
   tm_dots() 
 ```
 
-Pecentage of all tornadoes occurring on the big days.
+Pecentage of all tornadoes occurring on these big days.
 ```{r}
 sum(BigDays.sfT$nT)/dim(Torn.sf)[1] * 100
 ```
@@ -171,6 +168,13 @@ BigDays.sfT %>%
   arrange(desc(ATE))
 ```
 
+Correlations.
+```{r}
+cor(BigDays.sfT$nT, BigDays.sfT$ATE)
+cor(BigDays.sfT$nT, BigDays.sfT$AvgED)
+cor(BigDays.sfT$nT, BigDays.sfT$MedED)
+```
+
 Density plot of ATE.
 ```{r}
 labels <- c("10", "100", "1000","10000", "100000")
@@ -185,13 +189,13 @@ ggplot(BigDays.sfT, aes(log10(ATE))) +
 
 ## Part 2: Environmental data on big days
 
-Get environmental data at 18Z (2p local) on the convective day. Set up a vector of URLs as character strings. Data are not available on the NCDC server after September 30, 2014.
+Get environmental data at 18Z (2p local) on the convective day. Create a vector of URLs as character strings. Data are not available on the NCDC server after September 30, 2014.
 ```{r}
 df <- BigDayHulls.sfT %>%
   filter(cDate <= as.Date("2014-09-30")) %>%
   mutate(Yr = year(cDate),
          Mo = month(cDate),
-         Month = format(cDate, "%m"), # this is needed to preserve the leading zeros
+         Month = format(cDate, "%m"), # this is needed to preserve the leading zeros on the single-digit months
          Day = format(cDate, "%d"), 
          YrMo = paste0(Yr, Month),
          YrMoDa = paste0(YrMo, Day),
@@ -280,7 +284,7 @@ p1 <- df %>%
   filter(Yr < 2014) %>%
   group_by(Yr) %>%
   summarize(AnnualAvg = mean(aHLCY, na.rm = TRUE)) %>%
-ggplot(., aes(x = Yr, y = AnnualAvg)) +
+ggplot(aes(x = Yr, y = AnnualAvg)) +
   geom_point() + geom_smooth(method = lm, color = "black", size = .35) +
   scale_y_continuous(limits = c(0, NA)) +
   scale_x_continuous(breaks = seq(1994, 2013, 4)) +
@@ -292,7 +296,7 @@ p2 <- df %>%
   filter(Yr < 2014) %>%
   group_by(Yr) %>%
   summarize(AnnualAvg = mean(aCIN, na.rm = TRUE)) %>%
-ggplot(., aes(x = Yr, y = -AnnualAvg)) +
+ggplot(aes(x = Yr, y = AnnualAvg)) +
   geom_point()  + geom_smooth(method = lm, color = "black", size = .35) +
   scale_y_continuous(limits = c(0, NA)) +
   scale_x_continuous(breaks = seq(1994, 2013, 4)) +
@@ -304,7 +308,7 @@ p3 <- df %>%
   filter(Yr < 2014) %>%
   group_by(Yr) %>%
   summarize(AnnualAvg = mean(aBS, na.rm = TRUE)) %>%
-ggplot(., aes(x = Yr, y = AnnualAvg)) +
+ggplot(aes(x = Yr, y = AnnualAvg)) +
   geom_point() + geom_smooth(method = lm, color = "black", size = .35) +
   scale_y_continuous(limits = c(0, NA)) +
   scale_x_continuous(breaks = seq(1994, 2013, 4)) +
@@ -316,7 +320,7 @@ p4 <- df %>%
   filter(Yr < 2014) %>%
   group_by(Yr) %>%
   summarize(AnnualAvg = mean(aCAPE, na.rm = TRUE)) %>%
-ggplot(., aes(x = Yr, y = AnnualAvg)) +
+ggplot(aes(x = Yr, y = AnnualAvg)) +
   geom_point() + geom_smooth(method = lm, color = "black", size = .35) +
   scale_y_continuous(limits = c(0, NA)) +
   scale_x_continuous(breaks = seq(1994, 2013, 4)) +
