@@ -636,26 +636,37 @@ lines(r2[pval2 <= signif] * cos(dg2[pval2 <= signif] * pi/180),
 Line plot
 ```{r}
 theta <- seq(-90, 270, by = 1)
-r <- NULL ; pval <- NULL
+rBS <- NULL; rCAPE <- NULL 
+lwrBS <- NULL; uprBS <- NULL
+lwrCAPE <- NULL; uprCAPE <- NULL
 for (k in theta){
   C1 <- cos(k * pi/180)
   C2 <- sin(k * pi/180)
   Tclim <- C1 * scale(log(df$MedED)) + C2 * scale(log(df$nT))
-  ctest = cor.test(Tclim, df$mBS)
-  r <- c(r, as.numeric(ctest$estimate))
-  pval <- c(pval, as.numeric(ctest$p.value))
+  ctestBS <- cor.test(Tclim, df$mBS)
+  ctestCAPE <- cor.test(Tclim, df$mCAPE)
+  rBS <- c(rBS, as.numeric(ctestBS$estimate))
+  lwrBS <- c(lwrBS, ctestBS$conf.int[1])
+  uprBS <- c(uprBS, ctestBS$conf.int[2])
+  rCAPE <- c(rCAPE, as.numeric(ctestCAPE$estimate))
+  lwrCAPE <- c(lwrCAPE, ctestCAPE$conf.int[1])
+  uprCAPE <- c(uprCAPE, ctestCAPE$conf.int[2])
 }
-range(r)
 
-out.df <- data.frame(theta, r, pval)
+out.df <- data.frame(theta, rBS, lwrBS, uprBS, rCAPE, lwrCAPE, uprCAPE)
 
-ggplot(out.df, aes(x = theta, y = r)) + 
-  geom_line() +
+ggplot(out.df, aes(x = theta, y = rBS)) + 
+  geom_hline(yintercept = 0, lty = 2) +
+  geom_ribbon(data = out.df, aes(x = theta, ymin = lwrBS, ymax = uprBS), fill = "lightblue", alpha = .3) +
+  geom_line(color = "lightblue") +
+  geom_ribbon(data = out.df, aes(x = theta, ymin = lwrCAPE, ymax = uprCAPE), fill = "red3", alpha = .3) +
+  geom_line(data = out.df, aes(x = theta, y = rCAPE), color = "red3") +
   scale_x_continuous(breaks = seq(-90, 270, 45),
                      labels = c('-F', '-EF', 'I', 'A', 'F', 'EF', '-I', '-A', '-F')) +
-  scale_y_continuous(limits = c(-.5, .5)) +
+  scale_y_continuous(limits = c(-.6, .6)) +
   xlab("Tornado Outbreak Indicator") +
-  ylab("Correlation Coefficient")
+  ylab("Correlation Coefficient") +
+  theme_minimal()
 ```
 
 
