@@ -26,7 +26,7 @@ library(rgeos)
 Download the tornado data from the Storm Prediction Center (SPC) http://www.spc.noaa.gov/gis/svrgis/
 ```{r}
 download.file(url = "http://www.spc.noaa.gov/gis/svrgis/zipped/1950-2017-torn-initpoint.zip",
-              destfile = "tornado.zip", mode = "wb")
+              destfile = "tornado.zip")
 unzip("tornado.zip")
 ```
 
