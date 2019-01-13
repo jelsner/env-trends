@@ -111,7 +111,9 @@ BigDays.sf <- Torn.sf %>%
   summarize(nT = n(),
             ATE = sum(ED),
             AvgED = exp(mean(log(ED))),
-            MedED = median(ED)) %>%
+            MedED = median(ED),
+            q75ED = quantile(ED, prob = .75),
+            q95ED = quantile(ED, prob = .95)) %>%
   filter(nT >= 30)
 dim(BigDays.sf)
 ```
@@ -566,10 +568,14 @@ See `FreqInt.Rmd`
 
 ```{r}
 df2 <- df %>%
-  dplyr::select(nT, AvgED, MedED, mBS, mCAPE) %>%
-  dplyr::mutate(nTs = scale(log(nT)), AvgEDs = scale(log(AvgED)), 
+  dplyr::select(nT, AvgED, MedED, q75ED, q95ED, mBS, mCAPE) %>%
+  dplyr::mutate(nTs = scale(log(nT)), 
+                AvgEDs = scale(log(AvgED)), 
                 MedEDs = scale(log(MedED)),
-                mBSs = scale(mBS), mCAPEs = scale(mCAPE))
+                q75EDs = scale(log(q75ED)),
+                q95EDs = scale(log(q95ED)),
+                mBSs = scale(mBS), 
+                mCAPEs = scale(mCAPE))
 ggplot(df2, aes(x = MedEDs, y = nTs, color = mCAPEs)) +
   geom_point() 
 ```
